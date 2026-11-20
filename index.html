@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=0">
+<title>Gideon – wersja demo</title>
+<style>
+  :root {
+    --bg: #0d0d0f; --panel: #1b1c20; --panel2: #24262b; --line: #34363c;
+    --text: #e8e8ea; --muted: #9a9ca3; --accent: #f0b429;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 Roboto, "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  #top { height: 40px; display: flex; align-items: center; gap: 18px; padding: 0 16px;
+    border-bottom: 1px solid var(--line); background: #121316; white-space: nowrap; overflow: hidden; }
+  #top b { font-size: 16px; letter-spacing: .5px; }
+  #top .tag { background: var(--accent); color: #111; font-weight: 700; font-size: 11px;
+    padding: 2px 7px; border-radius: 3px; }
+  #top .hint { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  #top .hint code { color: var(--text); background: var(--panel2); padding: 1px 5px; border-radius: 3px; }
+  #top a { color: var(--muted); margin-left: auto; }
+  #stage { position: absolute; top: 40px; left: 0; right: 0; bottom: 0; display: flex; }
+  #screen { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; }
+  #frame { position: relative; overflow: hidden; flex: none; }
+  #qtcanvas { display: none; border: 0; outline: 0; caret-color: transparent; cursor: default; background: #000;
+    width: 1920px; height: 1080px; transform-origin: 0 0; position: absolute; left: 0; top: 0; }
+  #loader { text-align: center; color: var(--muted); }
+  #loader .bar { width: 260px; height: 4px; background: var(--panel2); margin: 14px auto 0; border-radius: 2px; overflow: hidden; }
+  #loader .bar i { display: block; height: 100%; width: 30%; background: var(--accent); animation: slide 1.2s infinite ease-in-out; }
+  @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+  #joys { width: 300px; flex: none; background: var(--panel); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; padding: 10px; gap: 8px; }
+  #joys h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  #joyrow { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; min-height: 0; }
+  .joy { background: var(--panel2); border-radius: 8px; display: flex; flex-direction: column; align-items: center;
+    padding: 8px 4px; gap: 6px; min-height: 0; border: 2px solid transparent; }
+  .joy.active { border-color: var(--c); }
+  .joy .name { font-weight: 700; font-size: 15px; color: var(--c); }
+  .joy .val { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); height: 18px; }
+  .track { position: relative; flex: 1; width: 44px; min-height: 120px; border-radius: 22px;
+    background: linear-gradient(#2e3036, #191a1e 50%, #2e3036); border: 1px solid var(--line); touch-action: none; cursor: grab; }
+  .track::after { content: ""; position: absolute; left: 6px; right: 6px; top: 50%; height: 1px; background: #555; }
+  .knob { position: absolute; left: 3px; width: 36px; height: 36px; border-radius: 50%; top: calc(50% - 18px);
+    background: radial-gradient(circle at 35% 30%, #fff8, transparent 60%), var(--c); box-shadow: 0 2px 6px #000a; pointer-events: none; }
+  .joy .lbl { font-size: 11px; color: var(--muted); }
+  #help { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  #help b { color: var(--text); font-weight: 600; }
+  @media (max-width: 900px) {
+    #stage { flex-direction: column; }
+    #joys { width: auto; height: 190px; border-left: 0; border-top: 1px solid var(--line); }
+    #help { display: none; }
+    .track { min-height: 60px; }
+    #top .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="top">
+  <b>Gideon 4.302</b><span class="tag">DEMO</span>
+  <span class="hint">Logowanie (klawiatura ekranowa): <code>admin</code> / <code>admin</code> albo <code>operator</code> / <code>operator</code> · wszystkie napędy są symulowane · po odświeżeniu strony wszystko wraca do stanu początkowego</span>
+</div>
+<div id="stage">
+  <div id="screen">
+    <div id="loader"><div id="status">Wczytywanie…</div><div class="bar"><i></i></div></div>
+    <div id="frame"><canvas id="qtcanvas" oncontextmenu="event.preventDefault()" contenteditable="true"></canvas></div>
+  </div>
+  <div id="joys">
+    <h2>Joysticki</h2>
+    <div id="joyrow"></div>
+    <div id="help">Przeciągnij gałkę w górę lub w dół – to jak wychylenie joysticka z wciśniętym spustem.
+      Puszczenie gałki = puszczenie joysticka.<br>
+      <b>Jak zacząć:</b> zaloguj się, wejdź w <b>Gideon</b>, dotknij kafelka napędu i zaraz potem joysticka (np. J1), wybierz tryb (LIM / POS / CZAS / SIN) i wychyl joystick.</div>
+  </div>
+</div>
+<script>
+  // Gideon ma ekran pulpitu 1920 x 1080: Qt dostaje ten rozmiar logiczny, przegladarka go skaluje
+  const DESK_W = 1920, DESK_H = 1080;
+  const JOYS = [ ['J1', '#ff4040'], ['J2', '#ffff40'], ['J3', '#5a78ff'], ['J4', '#40ff40'] ];
+  const screenEl = document.getElementById('screen');
+  const canvas = document.getElementById('qtcanvas');
+
+  // canvas zawsze 1920 x 1080 (tyle widzi Qt), pomniejszony przez CSS; Qt przelicza wspolrzedne
+  // myszy/dotyku przez Module.gidCanvasScale (poprawka w Qt: qwasmeventtranslator.cpp)
+  const frame = document.getElementById('frame');
+  function fitCanvas() {
+    const r = screenEl.getBoundingClientRect();
+    const s = Math.min(r.width / DESK_W, r.height / DESK_H);
+    frame.style.width = Math.floor(DESK_W * s) + 'px';
+    frame.style.height = Math.floor(DESK_H * s) + 'px';
+    canvas.style.transform = 'scale(' + s + ')';
+    if (typeof Module !== 'undefined') Module.gidCanvasScale = s;
+    return s;
+  }
+  window.addEventListener('resize', fitCanvas);
+
+  // ---- joysticki ekranowe -> Gideon (gidweb_joy)
+  const joyState = JOYS.map(() => ({ fire: 0, value: 0 }));
+  function sendJoy(i) {
+    if (typeof Module !== 'undefined' && Module._gidweb_joy)
+      Module._gidweb_joy(i, joyState[i].fire, joyState[i].value);
+  }
+  setInterval(() => joyState.forEach((_, i) => sendJoy(i)), 100);   // odswiezanie (wazne 250 ms w PLC)
+
+  const row = document.getElementById('joyrow');
+  JOYS.forEach(([name, color], i) => {
+    const el = document.createElement('div');
+    el.className = 'joy'; el.style.setProperty('--c', color);
+    el.innerHTML = `<div class="name">${name}</div><div class="val">0%</div>
+      <div class="track"><div class="knob"></div></div><div class="lbl">przód ↑ / tył ↓</div>`;
+    row.appendChild(el);
+    const track = el.querySelector('.track'), knob = el.querySelector('.knob'), val = el.querySelector('.val');
+    function show() {
+      const h = track.clientHeight - 36 - 6;
+      knob.style.top = (3 + h / 2 - joyState[i].value / 100 * h / 2) + 'px';
+      val.textContent = (joyState[i].value > 0 ? '+' : '') + joyState[i].value + '%';
+      el.classList.toggle('active', !!joyState[i].fire);
+    }
+    function setFromY(clientY) {
+      const r = track.getBoundingClientRect();
+      const half = (r.height - 42) / 2, mid = r.top + r.height / 2;
+      let v = Math.round(-(clientY - mid) / half * 100);
+      v = Math.max(-100, Math.min(100, v));
+      if (Math.abs(v) < 4) v = 0;
+      joyState[i].value = v; joyState[i].fire = 1; show(); sendJoy(i);
+    }
+    track.addEventListener('pointerdown', e => { track.setPointerCapture(e.pointerId); setFromY(e.clientY); e.preventDefault(); });
+    track.addEventListener('pointermove', e => { if (track.hasPointerCapture(e.pointerId)) setFromY(e.clientY); });
+    const release = () => { joyState[i].value = 0; joyState[i].fire = 0; show(); sendJoy(i); };
+    track.addEventListener('pointerup', release);
+    track.addEventListener('pointercancel', release);
+    new ResizeObserver(show).observe(track);
+    show();
+  });
+
+  // ---- pad (Gamepad API): lewa galka = J1, prawa = J2, spust = przycisk LB/RB
+  function pollPad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const p = pads && [...pads].find(x => x);
+    if (p) {
+      [[1, 4], [3, 5]].forEach(([axis, btn], j) => {
+        const v = Math.round(-(p.axes[axis] || 0) * 100);
+        const fire = p.buttons[btn] && p.buttons[btn].pressed ? 1 : 0;
+        if (fire || joyState[j].padFire) {
+          joyState[j].value = fire ? (Math.abs(v) < 6 ? 0 : v) : 0;
+          joyState[j].fire = fire; joyState[j].padFire = fire; sendJoy(j);
+          row.children[j].querySelector('.val').textContent = (joyState[j].value > 0 ? '+' : '') + joyState[j].value + '%';
+          row.children[j].classList.toggle('active', !!fire);
+        }
+      });
+    }
+    requestAnimationFrame(pollPad);
+  }
+  requestAnimationFrame(pollPad);
+
+</script>
+<script src="qtloader.js"></script>
+<script>
+  const statusEl = document.getElementById('status');
+  fitCanvas();
+  const qtLoader = QtLoader({
+    canvasElements: [canvas],
+    stdoutEnabled: true, stderrEnabled: true,
+    showLoader: s => { statusEl.textContent = s === 'Loading' ? 'Wczytywanie Gideona…' : s + '…'; },
+    showError: t => { statusEl.textContent = 'Błąd: ' + t; },
+    showExit: () => {
+      document.getElementById('loader').style.display = 'block'; canvas.style.display = 'none';
+      statusEl.textContent = 'Gideon został zamknięty – odśwież stronę, żeby uruchomić go od nowa.';
+      document.querySelector('#loader .bar').style.display = 'none';
+    },
+    showCanvas: () => { document.getElementById('loader').style.display = 'none'; canvas.style.display = 'block'; canvas.focus(); },
+  });
+  qtLoader.loadEmscriptenModule('Gideon');
+</script>
+</body>
+</html>
